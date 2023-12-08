@@ -7,7 +7,7 @@ COFLAGS = -g -fopenmp -Wall -Wextra -o
 PROGRAMSB = fft.o
 
 # Update here the executable files list
-PROGRAMSE = fft
+PROGRAMSE = fft fftomp
 
 % : %.c 
 	$(CC) $(COFLAGS) $@ $< -lm
@@ -28,4 +28,5 @@ clean :
 	rm -f *.o
 	rm -f ./bin/*.o
 	rm -rf ./bin
-	rm -f $(PROGRAMS)
+	rm -f $(PROGRAMSE)
+	rm -f *.wav

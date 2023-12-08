@@ -9,6 +9,8 @@
 #include <math.h>
 #include <complex.h>
 
+#include <omp.h>
+
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef uint16_t u16;
@@ -49,8 +51,11 @@ void FFT_rec(u64 n, const double complex * X, double complex *Y, u64 stride)
         }
         double complex omega_n = cexp(-2*I*M_PI / n);   /* n-th root of unity*/
         double complex omega = 1;                          /* twiddle factor */
+
         FFT_rec(n/2, X, Y, 2*stride);
         FFT_rec(n/2, X + stride, Y + n/2, 2*stride);
+
+        #pragma omp parallel for
         for (u64 i = 0; i < n/2; i++) {
                 double complex p = Y[i];
                 double complex q = Y[i + n/2] * omega;
@@ -65,15 +70,25 @@ void FFT(u64 n, const double complex * X, double complex *Y)
         /* sanity check */
         if ((n & (n - 1)) != 0)
                 errx(1, "size is not a power of two (this code does not handle other cases)");
+
+        #pragma omp parallel for
+        for (u64 i = 0; i < n; i++) {
+                Y[i] = X[i];
+        }
+
         FFT_rec(n, X, Y, 1);                        /* stride == 1 initially */
 }
 
 /* Computes the inverse Fourier transform, but destroys the input */
 void iFFT(u64 n, double complex * X, double complex *Y)
 {
+        #pragma omp parallel for
         for (u64 i = 0; i < n; i++)
                 X[i] = conj(X[i]);
+
         FFT(n, X, Y);
+        
+        #pragma omp parallel for
         for (u64 i = 0; i < n; i++)
                 Y[i] = conj(Y[i]) / n;
 }
@@ -175,6 +190,12 @@ void save_WAV(char *filename, u64 size, double complex *C)
 int main(int argc, char **argv)
 {
         process_command_line_options(argc, argv);
+
+        // #pragma omp parallel
+        // printf("Nb of threads = %d\n", omp_get_num_threads());
+        omp_set_num_threads(4);
+        int num_threads = omp_get_num_threads();
+        printf("Number of threads: %d\n", num_threads);
 
         struct timeval start, end;
         
