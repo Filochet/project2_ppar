@@ -1,10 +1,13 @@
 CC = gcc
-MPI = mpicc
 
-CCFLAGS = -g -O3 -Wall -Wextra -c
-COFLAGS = -g -Wall -Wextra -o
+CCFLAGS = -g -O3 -fopenmp -Wall -Wextra -c
+COFLAGS = -g -fopenmp -Wall -Wextra -o
 
-PROGRAMS = fft
+# Update here the binary files list
+PROGRAMSB = fft.o
+
+# Update here the executable files list
+PROGRAMSE = fft
 
 % : %.c 
 	$(CC) $(COFLAGS) $@ $< -lm
@@ -12,9 +15,17 @@ PROGRAMS = fft
 %.o : %.c
 	$(CC) $(CCFLAGS) $< -o ./bin/$@ -lm
 
-all : $(PROGRAMS)
+# Rule that compiles all the executables
+allexe : $(PROGRAMSE)
+
+# Rule that creates the folder "bin" if it doesn't exist then compiles all the code files into binaries
+allbin : | bin $(PROGRAMSB)
+
+bin :
+	mkdir -p bin
 
 clean : 
 	rm -f *.o
 	rm -f ./bin/*.o
+	rm -rf ./bin
 	rm -f $(PROGRAMS)
