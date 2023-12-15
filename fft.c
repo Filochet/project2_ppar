@@ -184,11 +184,14 @@ int main(int argc, char **argv)
         double complex *C = malloc(size * sizeof(*C));
 
         printf("Generating white noise...\n");
+        gettimeofday(&start, NULL);
         for (u64 i = 0; i < size; i++) {
                 double real = 2 * (PRF(seed, 0, i) * 5.42101086242752217e-20) - 1;
                 double imag = 2 * (PRF(seed, 1, i) * 5.42101086242752217e-20) - 1;
                 A[i] = real + imag * I;
         }
+        gettimeofday(&end, NULL);
+        double whitenoise_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
         printf("Forward FFT...\n");
         gettimeofday(&start, NULL);
@@ -218,7 +221,7 @@ int main(int argc, char **argv)
         for (u64 i = 0; i < size; i++)
                 C[i] /= max;
 
-        printf("\nExecution time of the FFT algorithm : %.6f\nExecution time of the inverse FFT algorithm : %.6f\n", fft_exec_time, inverse_fft_exec_time);
+        printf("\nWhite noise generation time : %.6f s\nExecution time of the FFT algorithm : %.6f s\nExecution time of the inverse FFT algorithm : %.6f s\n", whitenoise_exec_time, fft_exec_time, inverse_fft_exec_time);
 
         if (filename != NULL)
                 save_WAV(filename, size, C);
