@@ -199,13 +199,18 @@ int main(int argc, char **argv)
         gettimeofday(&end, NULL);
         double fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
+
         /* damp fourrier coefficients */
         printf("Adjusting Fourier coefficients...\n");
+        gettimeofday(&start, NULL);
         for (u64 i = 0; i < size; i++) {
                 double tmp = sin(i * 2 * M_PI / 44100);
                 B[i] *= tmp * cexp(-i*2*I*M_PI / 4 / 44100);
                 B[i] *= (i+1) / exp((i * cutoff) / size);
         }
+        gettimeofday(&end, NULL);
+        double adjust_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+
         
         printf("Inverse FFT...\n");
         gettimeofday(&start, NULL);
@@ -213,15 +218,23 @@ int main(int argc, char **argv)
         gettimeofday(&end, NULL);
         double inverse_fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
+
         printf("Normalizing output...\n");
+        gettimeofday(&start, NULL);
         double max = 0;
         for (u64 i = 0; i < size; i++)
                 max = fmax(max, cabs(C[i]));
         printf("max = %g\n", max);
         for (u64 i = 0; i < size; i++)
                 C[i] /= max;
+        gettimeofday(&end, NULL);
+        double normalization_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
-        printf("\nWhite noise generation time : %.6f s\nExecution time of the FFT algorithm : %.6f s\nExecution time of the inverse FFT algorithm : %.6f s\n", whitenoise_exec_time, fft_exec_time, inverse_fft_exec_time);
+        printf("\nWhite noise generation time : %.6f s\n", whitenoise_exec_time);
+        printf("Execution time of the FFT algorithm : %.6f s\n", fft_exec_time);
+        printf("Adjustment time  of the Fourier coefficients : %.6f s\n", adjust_time);
+        printf("Execution time of the inverse FFT algorithm : %.6f s\n", inverse_fft_exec_time);
+        printf("Normalization time of the output : %.6f s\n\n", normalization_time);
 
         if (filename != NULL)
                 save_WAV(filename, size, C);
