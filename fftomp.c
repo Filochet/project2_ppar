@@ -50,10 +50,8 @@ void FFT_rec(u64 n, const double complex *X, double complex *Y, u64 stride)
                 Y[0] = X[0];
                 return;
         }
-        double complex omega_n = cexp(-2 * I * M_PI / n); /* n-th root of unity*/
-        double complex omega = 1;                         /* twiddle factor */
-
-        if (n <= 128)
+        
+        if (n <= 1024)
         {
             FFT_rec(n / 2, X, Y, 2 * stride);
             FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
@@ -70,7 +68,9 @@ void FFT_rec(u64 n, const double complex *X, double complex *Y, u64 stride)
                 }
         }
 
-        #pragma omp parallel for schedule(dynamic)
+        double complex omega_n = cexp(-2 * I * M_PI / n); /* n-th root of unity*/
+        double complex omega = 1;                         /* twiddle factor */
+
         for (u64 i = 0; i < n / 2; i++)
         {
                 double complex p = Y[i];
@@ -86,15 +86,20 @@ void FFT(u64 n, const double complex *X, double complex *Y)
         /* sanity check */
         if ((n & (n - 1)) != 0)
                 errx(1, "size is not a power of two (this code does not handle other cases)");
+
         FFT_rec(n, X, Y, 1); /* stride == 1 initially */
 }
 
 /* Computes the inverse Fourier transform, but destroys the input */
 void iFFT(u64 n, double complex *X, double complex *Y)
 {
+        #pragma omp parallel for
         for (u64 i = 0; i < n; i++)
                 X[i] = conj(X[i]);
+
         FFT(n, X, Y);
+
+        #pragma omp parallel for
         for (u64 i = 0; i < n; i++)
                 Y[i] = conj(Y[i]) / n;
 }
@@ -199,7 +204,7 @@ int main(int argc, char **argv)
 {
         process_command_line_options(argc, argv);
 
-        omp_set_num_threads(12);
+        omp_set_num_threads(4);
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
