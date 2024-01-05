@@ -58,19 +58,19 @@ void FFT_rec(u64 n, const double complex *X, double complex *Y, u64 stride)
         }
         else
         {
-            #pragma omp parallel sections
-                {
-                    #pragma omp section
-                    FFT_rec(n / 2, X, Y, 2 * stride);
+                #pragma omp task
+                FFT_rec(n / 2, X, Y, 2 * stride);
 
-                    #pragma omp section
-                    FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
-                }
+                #pragma omp task
+                FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
+
+                #pragma omp taskwait
         }
 
         double complex omega_n = cexp(-2 * I * M_PI / n); /* n-th root of unity*/
         double complex omega = 1;                         /* twiddle factor */
 
+        // #pragma omp parallel for shared(n, omega, omega_n) //not working
         for (u64 i = 0; i < n / 2; i++)
         {
                 double complex p = Y[i];
@@ -87,7 +87,14 @@ void FFT(u64 n, const double complex *X, double complex *Y)
         if ((n & (n - 1)) != 0)
                 errx(1, "size is not a power of two (this code does not handle other cases)");
 
-        FFT_rec(n, X, Y, 1); /* stride == 1 initially */
+        #pragma omp parallel
+        {
+                omp_set_num_threads(1);
+                #pragma omp single
+                FFT_rec(n, X, Y, 1);                        /* stride == 1 initially */
+        };
+
+        // FFT_rec(n, X, Y, 1); /* stride == 1 initially */
 }
 
 /* Computes the inverse Fourier transform, but destroys the input */
@@ -204,7 +211,7 @@ int main(int argc, char **argv)
 {
         process_command_line_options(argc, argv);
 
-        omp_set_num_threads(4);
+        omp_set_num_threads(12);
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
@@ -215,7 +222,7 @@ int main(int argc, char **argv)
             }
         }
 
-        struct timeval start, end;
+        double start, end;
 
         /* generate white noise */
         double complex *A = malloc(size * sizeof(*A));
@@ -223,7 +230,7 @@ int main(int argc, char **argv)
         double complex *C = malloc(size * sizeof(*C));
 
         printf("Generating white noise...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         #pragma omp parallel for
         for (u64 i = 0; i < size; i++)
         {
@@ -231,18 +238,18 @@ int main(int argc, char **argv)
                 double imag = 2 * (PRF(seed, 1, i) * 5.42101086242752217e-20) - 1;
                 A[i] = real + imag * I;
         }
-        gettimeofday(&end, NULL);
-        double whitenoise_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double whitenoise_exec_time = end - start;
 
         printf("Forward FFT...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         FFT(size, A, B);
-        gettimeofday(&end, NULL);
-        double fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double fft_exec_time = end - start;
 
         /* damp fourrier coefficients */
         printf("Adjusting Fourier coefficients...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         #pragma omp parallel for
         for (u64 i = 0; i < size; i++)
         {
@@ -250,17 +257,17 @@ int main(int argc, char **argv)
                 B[i] *= tmp * cexp(-i * 2 * I * M_PI / 4 / 44100);
                 B[i] *= (i + 1) / exp((i * cutoff) / size);
         }
-        gettimeofday(&end, NULL);
-        double adjust_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double adjust_time = end - start;
 
         printf("Inverse FFT...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         iFFT(size, B, C);
-        gettimeofday(&end, NULL);
-        double inverse_fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double inverse_fft_exec_time = end - start;
 
         printf("Normalizing output...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         double max = 0;
         #pragma omp parallel for reduction(max : max)
         for (u64 i = 0; i < size; i++)
@@ -271,8 +278,8 @@ int main(int argc, char **argv)
         for (u64 i = 0; i < size; i++)
                 C[i] /= max;
 
-        gettimeofday(&end, NULL);
-        double normalization_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double normalization_time = end - start;
 
 
         printf("\nWhite noise generation time : %.6f s\n", whitenoise_exec_time);
