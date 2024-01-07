@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <math.h>
 #include <complex.h>
+#include <omp.h>
 
 typedef uint64_t u64;
 typedef uint32_t u32;
@@ -16,6 +17,7 @@ typedef uint16_t u16;
 double cutoff = 500;
 u64 seed = 0;
 u64 size = 0;
+int threads = 0;
 char *filename = NULL;
 
 /******************** pseudo-random function (SPECK-like) ********************/
@@ -30,7 +32,8 @@ u64 PRF(u64 seed, u64 IV, u64 i)
         u64 b = IV;
         u64 a = seed;
         R(x, y, b);
-        for (int i = 0; i < 32; i++) {
+        for (int i = 0; i < 32; i++)
+        {
                 R(a, b, i);
                 R(x, y, b);
         }
@@ -41,39 +44,73 @@ u64 PRF(u64 seed, u64 IV, u64 i)
 /* This code assumes that n is a power of two !!!                            */
 /*****************************************************************************/
 
-void FFT_rec(u64 n, const double complex * X, double complex *Y, u64 stride)
+void FFT_rec(u64 n, const double complex *X, double complex *Y, u64 stride)
 {
-        if (n == 1) {
+        if (n == 1)
+        {
                 Y[0] = X[0];
                 return;
         }
-        double complex omega_n = cexp(-2*I*M_PI / n);   /* n-th root of unity*/
-        double complex omega = 1;                          /* twiddle factor */
-        FFT_rec(n/2, X, Y, 2*stride);
-        FFT_rec(n/2, X + stride, Y + n/2, 2*stride);
-        for (u64 i = 0; i < n/2; i++) {
+        
+        if (n <= 1024) // sequential faster for n <= 1024 (chosen empirically through our experimentations)
+        {
+            FFT_rec(n / 2, X, Y, 2 * stride);
+            FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
+        }
+        else // omp task for better workload distribution
+        {
+                #pragma omp task
+                FFT_rec(n / 2, X, Y, 2 * stride);
+
+                #pragma omp task
+                FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
+
+                #pragma omp taskwait
+				// waiting for the tasks to sync
+        }
+
+		// moving these two lines after the recursive calls / work distribution so we don't waste time
+        double complex omega_n = cexp(-2 * I * M_PI / n); /* n-th root of unity*/
+        double complex omega = 1;                         /* twiddle factor */
+
+        // #pragma omp parallel for shared(n, omega, omega_n) // not working, slowing down algorithm
+        for (u64 i = 0; i < n / 2; i++)
+        {
                 double complex p = Y[i];
-                double complex q = Y[i + n/2] * omega;
+                double complex q = Y[i + n / 2] * omega;
                 Y[i] = p + q;
-                Y[i + n/2] = p - q;
+                Y[i + n / 2] = p - q;
                 omega *= omega_n;
         }
 }
 
-void FFT(u64 n, const double complex * X, double complex *Y)
+void FFT(u64 n, const double complex *X, double complex *Y)
 {
         /* sanity check */
         if ((n & (n - 1)) != 0)
                 errx(1, "size is not a power of two (this code does not handle other cases)");
-        FFT_rec(n, X, Y, 1);                        /* stride == 1 initially */
+
+        #pragma omp parallel //only one thread should run FFT, so that we can distribute the work for the other threads
+        {
+                omp_set_num_threads(1);
+                #pragma omp single
+                FFT_rec(n, X, Y, 1);                        /* stride == 1 initially */
+        };
+
+        // FFT_rec(n, X, Y, 1); /* stride == 1 initially */
 }
 
 /* Computes the inverse Fourier transform, but destroys the input */
-void iFFT(u64 n, double complex * X, double complex *Y)
+void iFFT(u64 n, double complex *X, double complex *Y)
 {
+		// we parallelize both for loops
+        #pragma omp parallel for 
         for (u64 i = 0; i < n; i++)
                 X[i] = conj(X[i]);
+
         FFT(n, X, Y);
+
+        #pragma omp parallel for
         for (u64 i = 0; i < n; i++)
                 Y[i] = conj(Y[i]) / n;
 }
@@ -89,16 +126,22 @@ double wtime()
 
 void process_command_line_options(int argc, char **argv)
 {
-        struct option longopts[5] = {
-                {"size", required_argument, NULL, 'n'},
-                {"seed", required_argument, NULL, 's'},
-                {"output", required_argument, NULL, 'o'},
-                {"cutoff", required_argument, NULL, 'c'},
-                {NULL, 0, NULL, 0}
+        struct option longopts[6] = {
+            {"threads", required_argument, NULL, 't'}, //added a "thread" option
+            {"size", required_argument, NULL, 'n'},
+            {"seed", required_argument, NULL, 's'},
+            {"output", required_argument, NULL, 'o'},
+            {"cutoff", required_argument, NULL, 'c'},
+            {NULL, 0, NULL, 0}
         };
         char ch;
-        while ((ch = getopt_long(argc, argv, "", longopts, NULL)) != -1) {
-                switch (ch) {
+        while ((ch = getopt_long(argc, argv, "", longopts, NULL)) != -1)
+        {
+                switch (ch)
+                {
+				case 't':
+						threads = atoi(optarg); //thread option
+						break;
                 case 'n':
                         size = atoll(optarg);
                         break;
@@ -128,13 +171,13 @@ void save_WAV(char *filename, u64 size, double complex *C)
         if (f == NULL)
                 err(1, "fopen");
         printf("Writing <= 10s of audio output in %s\n", filename);
-        u32 rate = 44100;        // Sample rate
-        u32 frame_count = 10*rate;
+        u32 rate = 44100; // Sample rate
+        u32 frame_count = 10 * rate;
         if (size < frame_count)
                 frame_count = size;
-        u16 chan_num = 2;        // Number of channels
-        u16 bits = 16;           // Bit depth
-        u32 length = frame_count*chan_num*bits / 8;
+        u16 chan_num = 2; // Number of channels
+        u16 bits = 16;    // Bit depth
+        u32 length = frame_count * chan_num * bits / 8;
         u16 byte;
         double multiplier = 32767;
 
@@ -146,7 +189,7 @@ void save_WAV(char *filename, u64 size, double complex *C)
         fwrite("fmt ", 1, 4, f);
         u32 subchunk1_size = 16;
         fwrite(&subchunk1_size, 4, 1, f);
-        u16 fmt_type = 1;  // 1 = PCM
+        u16 fmt_type = 1; // 1 = PCM
         fwrite(&fmt_type, 2, 1, f);
         fwrite(&chan_num, 2, 1, f);
         fwrite(&rate, 4, 1, f);
@@ -159,7 +202,7 @@ void save_WAV(char *filename, u64 size, double complex *C)
 
         /* Marks the start of the data */
         fwrite("data", 1, 4, f);
-        fwrite(&length, 4, 1, f);  // Data size
+        fwrite(&length, 4, 1, f); // Data size
         for (u32 i = 0; i < frame_count; i++)
         {
                 byte = creal(C[i]) * multiplier;
@@ -176,59 +219,79 @@ int main(int argc, char **argv)
 {
         process_command_line_options(argc, argv);
 
-        struct timeval start, end;
-        
+        FILE *fd = fopen("exec_times_par.txt", "a");
+
+        omp_set_num_threads(threads); // int threads coming from the newly added thread option
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num();
+            if (tid == 0)
+            {
+                int num_threads = omp_get_num_threads();
+                printf("Number of threads: %d\n", num_threads);
+                fprintf(fd, "%d ", num_threads);
+            }
+        }
+
+        double start, end;
+
         /* generate white noise */
         double complex *A = malloc(size * sizeof(*A));
         double complex *B = malloc(size * sizeof(*B));
         double complex *C = malloc(size * sizeof(*C));
 
         printf("Generating white noise...\n");
-        gettimeofday(&start, NULL);
-        for (u64 i = 0; i < size; i++) {
+        start = wtime();
+        #pragma omp parallel for // parallelizing all the for loops in main
+        for (u64 i = 0; i < size; i++)
+        {
                 double real = 2 * (PRF(seed, 0, i) * 5.42101086242752217e-20) - 1;
                 double imag = 2 * (PRF(seed, 1, i) * 5.42101086242752217e-20) - 1;
                 A[i] = real + imag * I;
         }
-        gettimeofday(&end, NULL);
-        double whitenoise_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double whitenoise_exec_time = end - start;
 
         printf("Forward FFT...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         FFT(size, A, B);
-        gettimeofday(&end, NULL);
-        double fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
-
+        end = wtime();
+        double fft_exec_time = end - start;
 
         /* damp fourrier coefficients */
         printf("Adjusting Fourier coefficients...\n");
-        gettimeofday(&start, NULL);
-        for (u64 i = 0; i < size; i++) {
+        start = wtime();
+        #pragma omp parallel for // parallelizing all the for loops in main
+        for (u64 i = 0; i < size; i++)
+        {
                 double tmp = sin(i * 2 * M_PI / 44100);
-                B[i] *= tmp * cexp(-i*2*I*M_PI / 4 / 44100);
-                B[i] *= (i+1) / exp((i * cutoff) / size);
+                B[i] *= tmp * cexp(-i * 2 * I * M_PI / 4 / 44100);
+                B[i] *= (i + 1) / exp((i * cutoff) / size);
         }
-        gettimeofday(&end, NULL);
-        double adjust_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        end = wtime();
+        double adjust_time = end - start;
 
-        
         printf("Inverse FFT...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         iFFT(size, B, C);
-        gettimeofday(&end, NULL);
-        double inverse_fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
-
+        end = wtime();
+        double inverse_fft_exec_time = end - start;
 
         printf("Normalizing output...\n");
-        gettimeofday(&start, NULL);
+        start = wtime();
         double max = 0;
+        #pragma omp parallel for reduction(max : max) // parallelizing all the for loops in main and here we gather for the variable "max"
         for (u64 i = 0; i < size; i++)
                 max = fmax(max, cabs(C[i]));
         printf("max = %g\n", max);
+
+        #pragma omp parallel for // parallelizing all the for loops in main
         for (u64 i = 0; i < size; i++)
                 C[i] /= max;
-        gettimeofday(&end, NULL);
-        double normalization_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+
+        end = wtime();
+        double normalization_time = end - start;
+
 
         printf("\nWhite noise generation time : %.6f s\n", whitenoise_exec_time);
         printf("Execution time of the FFT algorithm : %.6f s\n", fft_exec_time);
@@ -236,13 +299,13 @@ int main(int argc, char **argv)
         printf("Execution time of the inverse FFT algorithm : %.6f s\n", inverse_fft_exec_time);
         printf("Normalization time of the output : %.6f s\n\n", normalization_time);
 
+
         if (filename != NULL)
                 save_WAV(filename, size, C);
 
-        FILE *fd = fopen("exec_times_seq.txt", "a");
         // writing all the executions time in a file so we can retrieve them for further analysis
-        fprintf(fd, "%.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
+        fprintf(fd, " %.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
         fclose(fd);
-        
+
         exit(EXIT_SUCCESS);
 }

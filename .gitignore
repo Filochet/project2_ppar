@@ -53,4 +53,7 @@ dkms.conf
 
 # Other
 assignment.pdf
+*.wav
+fft
+fftomp
 .vscode
