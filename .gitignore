@@ -56,6 +56,8 @@ assignment.pdf
 *.wav
 fft
 fftomp
+.vscode
+
 tot_exec_times_par.txt
 tot_exec_times_seq.txt
 many_exec_times_par.txt
