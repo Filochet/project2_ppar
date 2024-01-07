@@ -52,12 +52,12 @@ void FFT_rec(u64 n, const double complex *X, double complex *Y, u64 stride)
                 return;
         }
         
-        if (n <= 1024)
+        if (n <= 1024) // sequential faster for n <= 1024 (chosen empirically through our experimentations)
         {
             FFT_rec(n / 2, X, Y, 2 * stride);
             FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
         }
-        else
+        else // omp task for better workload distribution
         {
                 #pragma omp task
                 FFT_rec(n / 2, X, Y, 2 * stride);
@@ -66,12 +66,14 @@ void FFT_rec(u64 n, const double complex *X, double complex *Y, u64 stride)
                 FFT_rec(n / 2, X + stride, Y + n / 2, 2 * stride);
 
                 #pragma omp taskwait
+				// waiting for the tasks to sync
         }
 
+		// moving these two lines after the recursive calls / work distribution so we don't waste time
         double complex omega_n = cexp(-2 * I * M_PI / n); /* n-th root of unity*/
         double complex omega = 1;                         /* twiddle factor */
 
-        // #pragma omp parallel for shared(n, omega, omega_n) //not working
+        // #pragma omp parallel for shared(n, omega, omega_n) // not working, slowing down algorithm
         for (u64 i = 0; i < n / 2; i++)
         {
                 double complex p = Y[i];
@@ -88,7 +90,7 @@ void FFT(u64 n, const double complex *X, double complex *Y)
         if ((n & (n - 1)) != 0)
                 errx(1, "size is not a power of two (this code does not handle other cases)");
 
-        #pragma omp parallel
+        #pragma omp parallel //only one thread should run FFT, so that we can distribute the work for the other threads
         {
                 omp_set_num_threads(1);
                 #pragma omp single
@@ -101,7 +103,8 @@ void FFT(u64 n, const double complex *X, double complex *Y)
 /* Computes the inverse Fourier transform, but destroys the input */
 void iFFT(u64 n, double complex *X, double complex *Y)
 {
-        #pragma omp parallel for
+		// we parallelize both for loops
+        #pragma omp parallel for 
         for (u64 i = 0; i < n; i++)
                 X[i] = conj(X[i]);
 
@@ -124,7 +127,7 @@ double wtime()
 void process_command_line_options(int argc, char **argv)
 {
         struct option longopts[6] = {
-            {"threads", required_argument, NULL, 't'},
+            {"threads", required_argument, NULL, 't'}, //added a "thread" option
             {"size", required_argument, NULL, 'n'},
             {"seed", required_argument, NULL, 's'},
             {"output", required_argument, NULL, 'o'},
@@ -137,7 +140,7 @@ void process_command_line_options(int argc, char **argv)
                 switch (ch)
                 {
 				case 't':
-						threads = atoi(optarg);
+						threads = atoi(optarg); //thread option
 						break;
                 case 'n':
                         size = atoll(optarg);
@@ -218,7 +221,7 @@ int main(int argc, char **argv)
 
         FILE *fd = fopen("exec_times_par.txt", "a");
 
-        omp_set_num_threads(threads);
+        omp_set_num_threads(threads); // int threads coming from the newly added thread option
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
@@ -239,7 +242,7 @@ int main(int argc, char **argv)
 
         printf("Generating white noise...\n");
         start = wtime();
-        #pragma omp parallel for
+        #pragma omp parallel for // parallelizing all the for loops in main
         for (u64 i = 0; i < size; i++)
         {
                 double real = 2 * (PRF(seed, 0, i) * 5.42101086242752217e-20) - 1;
@@ -258,7 +261,7 @@ int main(int argc, char **argv)
         /* damp fourrier coefficients */
         printf("Adjusting Fourier coefficients...\n");
         start = wtime();
-        #pragma omp parallel for
+        #pragma omp parallel for // parallelizing all the for loops in main
         for (u64 i = 0; i < size; i++)
         {
                 double tmp = sin(i * 2 * M_PI / 44100);
@@ -277,12 +280,12 @@ int main(int argc, char **argv)
         printf("Normalizing output...\n");
         start = wtime();
         double max = 0;
-        #pragma omp parallel for reduction(max : max)
+        #pragma omp parallel for reduction(max : max) // parallelizing all the for loops in main and here we gather for the variable "max"
         for (u64 i = 0; i < size; i++)
                 max = fmax(max, cabs(C[i]));
         printf("max = %g\n", max);
 
-        #pragma omp parallel for
+        #pragma omp parallel for // parallelizing all the for loops in main
         for (u64 i = 0; i < size; i++)
                 C[i] /= max;
 
@@ -300,7 +303,7 @@ int main(int argc, char **argv)
         if (filename != NULL)
                 save_WAV(filename, size, C);
 
-        
+        // writing all the executions time in a file so we can retrieve them for further analysis
         fprintf(fd, " %.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
         fclose(fd);
 

@@ -240,6 +240,7 @@ int main(int argc, char **argv)
                 save_WAV(filename, size, C);
 
         FILE *fd = fopen("exec_times_seq.txt", "a");
+        // writing all the executions time in a file so we can retrieve them for further analysis
         fprintf(fd, "%.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
         fclose(fd);
         
