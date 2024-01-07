@@ -211,6 +211,8 @@ int main(int argc, char **argv)
 {
         process_command_line_options(argc, argv);
 
+        FILE *fd = fopen("exec_times_par.txt", "a");
+
         omp_set_num_threads(12);
         #pragma omp parallel
         {
@@ -219,6 +221,7 @@ int main(int argc, char **argv)
             {
                 int num_threads = omp_get_num_threads();
                 printf("Number of threads: %d\n", num_threads);
+                fprintf(fd, "%d ", num_threads);
             }
         }
 
@@ -291,6 +294,10 @@ int main(int argc, char **argv)
 
         if (filename != NULL)
                 save_WAV(filename, size, C);
+
+        
+        fprintf(fd, " %.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
+        fclose(fd);
 
         exit(EXIT_SUCCESS);
 }

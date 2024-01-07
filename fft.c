@@ -238,6 +238,10 @@ int main(int argc, char **argv)
 
         if (filename != NULL)
                 save_WAV(filename, size, C);
+
+        FILE *fd = fopen("exec_times_seq.txt", "a");
+        fprintf(fd, "%.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
+        fclose(fd);
         
         exit(EXIT_SUCCESS);
 }
