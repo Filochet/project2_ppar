@@ -17,6 +17,7 @@ typedef uint16_t u16;
 double cutoff = 500;
 u64 seed = 0;
 u64 size = 0;
+int threads = 0;
 char *filename = NULL;
 
 /******************** pseudo-random function (SPECK-like) ********************/
@@ -122,7 +123,8 @@ double wtime()
 
 void process_command_line_options(int argc, char **argv)
 {
-        struct option longopts[5] = {
+        struct option longopts[6] = {
+            {"threads", required_argument, NULL, 't'},
             {"size", required_argument, NULL, 'n'},
             {"seed", required_argument, NULL, 's'},
             {"output", required_argument, NULL, 'o'},
@@ -134,6 +136,9 @@ void process_command_line_options(int argc, char **argv)
         {
                 switch (ch)
                 {
+				case 't':
+						threads = atoi(optarg);
+						break;
                 case 'n':
                         size = atoll(optarg);
                         break;
@@ -213,7 +218,7 @@ int main(int argc, char **argv)
 
         FILE *fd = fopen("exec_times_par.txt", "a");
 
-        omp_set_num_threads(12);
+        omp_set_num_threads(threads);
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
