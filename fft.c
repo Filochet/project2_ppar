@@ -176,72 +176,82 @@ int main(int argc, char **argv)
 {
         process_command_line_options(argc, argv);
 
-        struct timeval start, end;
+        // struct timeval start, end;
+        struct timeval tot_start, tot_end;
         
         /* generate white noise */
         double complex *A = malloc(size * sizeof(*A));
         double complex *B = malloc(size * sizeof(*B));
         double complex *C = malloc(size * sizeof(*C));
 
+        gettimeofday(&tot_start, NULL);
+
         printf("Generating white noise...\n");
-        gettimeofday(&start, NULL);
+        // gettimeofday(&start, NULL);
         for (u64 i = 0; i < size; i++) {
                 double real = 2 * (PRF(seed, 0, i) * 5.42101086242752217e-20) - 1;
                 double imag = 2 * (PRF(seed, 1, i) * 5.42101086242752217e-20) - 1;
                 A[i] = real + imag * I;
         }
-        gettimeofday(&end, NULL);
-        double whitenoise_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        // gettimeofday(&end, NULL);
+        // double whitenoise_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
         printf("Forward FFT...\n");
-        gettimeofday(&start, NULL);
+        // gettimeofday(&start, NULL);
         FFT(size, A, B);
-        gettimeofday(&end, NULL);
-        double fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        // gettimeofday(&end, NULL);
+        // double fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
 
         /* damp fourrier coefficients */
         printf("Adjusting Fourier coefficients...\n");
-        gettimeofday(&start, NULL);
+        // gettimeofday(&start, NULL);
         for (u64 i = 0; i < size; i++) {
                 double tmp = sin(i * 2 * M_PI / 44100);
                 B[i] *= tmp * cexp(-i*2*I*M_PI / 4 / 44100);
                 B[i] *= (i+1) / exp((i * cutoff) / size);
         }
-        gettimeofday(&end, NULL);
-        double adjust_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        // gettimeofday(&end, NULL);
+        // double adjust_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
         
         printf("Inverse FFT...\n");
-        gettimeofday(&start, NULL);
+        // gettimeofday(&start, NULL);
         iFFT(size, B, C);
-        gettimeofday(&end, NULL);
-        double inverse_fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        // gettimeofday(&end, NULL);
+        // double inverse_fft_exec_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
 
         printf("Normalizing output...\n");
-        gettimeofday(&start, NULL);
+        // gettimeofday(&start, NULL);
         double max = 0;
         for (u64 i = 0; i < size; i++)
                 max = fmax(max, cabs(C[i]));
         printf("max = %g\n", max);
         for (u64 i = 0; i < size; i++)
                 C[i] /= max;
-        gettimeofday(&end, NULL);
-        double normalization_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
+        // gettimeofday(&end, NULL);
+        // double normalization_time = (double) ((end.tv_sec - start.tv_sec) * 1000000LL + (end.tv_usec - start.tv_usec)) / 1000000.0;
 
-        printf("\nWhite noise generation time : %.6f s\n", whitenoise_exec_time);
-        printf("Execution time of the FFT algorithm : %.6f s\n", fft_exec_time);
-        printf("Adjustment time  of the Fourier coefficients : %.6f s\n", adjust_time);
-        printf("Execution time of the inverse FFT algorithm : %.6f s\n", inverse_fft_exec_time);
-        printf("Normalization time of the output : %.6f s\n\n", normalization_time);
+        gettimeofday(&tot_end, NULL);
+        double tot_time = (double) ((tot_end.tv_sec - tot_start.tv_sec) * 1000000LL + (tot_end.tv_usec - tot_start.tv_usec)) / 1000000.0;
+
+        // printf("\nWhite noise generation time : %.6f s\n", whitenoise_exec_time);
+        // printf("Execution time of the FFT algorithm : %.6f s\n", fft_exec_time);
+        // printf("Adjustment time  of the Fourier coefficients : %.6f s\n", adjust_time);
+        // printf("Execution time of the inverse FFT algorithm : %.6f s\n", inverse_fft_exec_time);
+        // printf("Normalization time of the output : %.6f s\n\n", normalization_time);
 
         if (filename != NULL)
                 save_WAV(filename, size, C);
 
-        FILE *fd = fopen("exec_times_seq.txt", "a");
+        // FILE *fd = fopen("exec_times_seq.txt", "a");
         // writing all the executions time in a file so we can retrieve them for further analysis
-        fprintf(fd, "%.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
+        // fprintf(fd, "%.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
+        // fclose(fd);
+
+        FILE *fd = fopen("tot_exec_times_seq.txt", "a");
+        fprintf(fd,"%lu %.6f\n", size, tot_time);
         fclose(fd);
         
         exit(EXIT_SUCCESS);
