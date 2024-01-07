@@ -90,12 +90,11 @@ void FFT(u64 n, const double complex *X, double complex *Y)
         if ((n & (n - 1)) != 0)
                 errx(1, "size is not a power of two (this code does not handle other cases)");
 
-        #pragma omp parallel //only one thread should run FFT, so that we can distribute the work for the other threads
+        #pragma omp parallel
         {
-                omp_set_num_threads(1);
-                #pragma omp single
-                FFT_rec(n, X, Y, 1);                        /* stride == 1 initially */
-        };
+        	#pragma omp single
+        	FFT_rec(n, X, Y, 1);                        /* stride == 1 initially */
+        }
 
         // FFT_rec(n, X, Y, 1); /* stride == 1 initially */
 }
@@ -103,7 +102,7 @@ void FFT(u64 n, const double complex *X, double complex *Y)
 /* Computes the inverse Fourier transform, but destroys the input */
 void iFFT(u64 n, double complex *X, double complex *Y)
 {
-		// we parallelize both for loops
+	// we parallelize both for loops
         #pragma omp parallel for 
         for (u64 i = 0; i < n; i++)
                 X[i] = conj(X[i]);
@@ -220,6 +219,7 @@ int main(int argc, char **argv)
         process_command_line_options(argc, argv);
 
         FILE *fd = fopen("exec_times_par.txt", "a");
+        // FILE *fd = fopen("many_exec_times_par.txt", "a");
 
         omp_set_num_threads(threads); // int threads coming from the newly added thread option
         #pragma omp parallel
@@ -305,6 +305,7 @@ int main(int argc, char **argv)
 
         // writing all the executions time in a file so we can retrieve them for further analysis
         fprintf(fd, " %.6f %.6f %.6f %.6f %.6f\n", whitenoise_exec_time, fft_exec_time, adjust_time, inverse_fft_exec_time, normalization_time);
+        // fprintf(fd, " %.6f %lu\n", end - start, size);
         fclose(fd);
 
         exit(EXIT_SUCCESS);
