@@ -39,5 +39,5 @@ make clean
 
 ## Authors@
 
-- **TAN Philippe** - [superfiloche](https://github.com/superfiloche)
+- **TAN Philippe** - [Filochet](https://github.com/Filochet)
 - **GOGRITCHIANI Lasha** - [LashaGOG](https://github.com/LashaGOG)
